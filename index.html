@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Web Bluetooth Chat</title>
+	</head>
+	<body>
+		<div>
+			<label for="device-list">Bluetoothデバイスを選択：</label>
+			<select id="device-list"></select>
+			<button id="connect-btn">接続</button>
+		</div>
+		<div>
+			<textarea id="message-log" rows="10" cols="50" readonly></textarea>
+		</div>
+		<div>
+			<input type="text" id="message-input" />
+			<button id="send-btn">送信</button>
+		</div>
+
+		<script>
+			let selectedDevice;
+			let messageLog = document.getElementById("message-log");
+			let messageInput = document.getElementById("message-input");
+			let connectBtn = document.getElementById("connect-btn");
+			let sendBtn = document.getElementById("send-btn");
+
+			// Web Bluetooth APIがサポートされているかをチェック
+			if ("bluetooth" in navigator) {
+				connectBtn.disabled = false;
+			} else {
+				logMessage("Web Bluetooth APIはサポートされていません。");
+			}
+
+			// 接続ボタンのイベントリスナー
+			connectBtn.addEventListener("click", async () => {
+				try {
+					// デバイスの選択を要求
+					selectedDevice = await navigator.bluetooth.requestDevice({
+						filters: [{ services: ["generic_access"] }],
+					});
+
+					logMessage("デバイスが選択されました: " + selectedDevice.name);
+
+					// 選択されたデバイスに接続
+					await selectedDevice.gatt.connect();
+
+					logMessage("接続しました: " + selectedDevice.name);
+
+					// メッセージ入力と送信ボタンを有効にする
+					messageInput.disabled = false;
+					sendBtn.disabled = false;
+
+					// メッセージの受信を開始
+					await startReceivingMessages();
+				} catch (error) {
+					logMessage("エラー: " + error);
+				}
+			});
+
+			// 送信ボタンのイベントリスナー
+			sendBtn.addEventListener("click", async () => {
+				if (selectedDevice && selectedDevice.gatt.connected) {
+					let message = messageInput.value;
+					messageInput.value = "";
+
+					// 新しいキャラクタリスティックを作成してメッセージを書き込む
+					let service = selectedDevice.gatt.getPrimaryService("generic_access");
+					let characteristic = await service.getCharacteristic(
+						"generic_access"
+					);
+
+					await characteristic.writeValue(new TextEncoder().encode(message));
+
+					logMessage("送信しました: " + message);
+				}
+			});
+
+			// メッセージの受信を開始する関数
+			async function startReceivingMessages() {
+				let service = selectedDevice.gatt.getPrimaryService("generic_access");
+				let characteristic = await service.getCharacteristic("generic_access");
+
+				characteristic.addEventListener(
+					"characteristicvaluechanged",
+					handleCharacteristicValueChanged
+				);
+				await characteristic.startNotifications();
+				logMessage("メッセージを受信中...");
+			}
+
+			// 受信したメッセージを処理する関数
+			function handleCharacteristicValueChanged(event) {
+				let value = new TextDecoder().decode(event.target.value.buffer);
+				logMessage("受信しました: " + value);
+			}
+
+			// メッセージをメッセージログのテキストエリアに記録する関数
+			function logMessage(message) {
+				let timestamp = new Date().toLocaleTimeString();
+				messageLog.value += "[" + timestamp + "] " + message + "\n";
+			}
+		</script>
+	</body>
+</html>
